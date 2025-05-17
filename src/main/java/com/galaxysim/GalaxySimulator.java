@@ -35,9 +35,13 @@ public class GalaxySimulator {
 
     // the actual space stuff
     private List<Star> stars;         // all our pretty stars
+    private List<Stars.ShootingStar> shootingStars; // shooting stars with trails
+    private List<Nebula> nebulae;     // colorful gas clouds
     private Random random;            // for making random stuff
     private Set<String> generatedRegions;  // keeps track of where the game has already made stars
     private static final float REGION_SIZE = 2000.0f;  // how big each chunk of space is
+    private static final float NEBULA_RARITY = 0.05f;  // chance of a nebula spawning in a region (5% - very rare)
+    private static final float SHOOTING_STAR_CHANCE = 0.02f; // 2% chance per frame to spawn a shooting star
 
     // this is what each star is made of
     private static class Star {
@@ -111,9 +115,12 @@ public class GalaxySimulator {
         GL.createCapabilities();
         glEnable(GL_DEPTH_TEST);
 
-        cameraPos = new Vector3f(0.0f, 0.0f, 5.0f);
-        cameraFront = new Vector3f(0.0f, 0.0f, -1.0f);
-        cameraUp = new Vector3f(0.0f, 1.0f, 0.0f);
+        // Initialize our collections
+        stars = new ArrayList<>();
+        shootingStars = new ArrayList<>();
+        nebulae = new ArrayList<>();
+        random = new Random();
+        generatedRegions = new HashSet<>();
 
         // set cursor to center and hide it
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -144,10 +151,6 @@ public class GalaxySimulator {
             );
             cameraFront = direction.normalize();
         });
-        stars = new ArrayList<>();
-        random = new Random();
-        stars = new ArrayList<>();
-        generatedRegions = new HashSet<>();
 
         // make our first few star clusters so it's not totally empty
         for (int i = 0; i < 5; i++) {
@@ -163,18 +166,20 @@ public class GalaxySimulator {
             );
             createStarCluster(center, random.nextInt(100, 300), random.nextFloat() * 30.0f + 20.0f);
         }
+        
+        // Add scattered white stars in the starting area
+        createScatteredStars(new Vector3f(0, 0, 0), 500, 200.0f);
     }
 
     private void createStarCluster(Vector3f center, int numStars, float radius) {
         // gonna make a bunch of stars in a nice ball shape
         for (int i = 0; i < numStars; i++) {
             // ok so this math looks scary but it just makes stars spread out in a sphere
-            // instead of a cube (way prettier this way!)
             float theta = random.nextFloat() * 2.0f * (float)Math.PI;  // spin around in a circle
             float phi = (float)Math.acos(2.0f * random.nextFloat() - 1.0f);  // up/down angle
             float r = random.nextFloat() * radius;  // how far from the center
             
-            // figure out where to put the star using some trigonometry magic
+            // figure out where to put the star using trig
             float x = center.x + r * (float)(Math.sin(phi) * Math.cos(theta));
             float y = center.y + r * (float)(Math.sin(phi) * Math.sin(theta));
             float z = center.z + r * (float)Math.cos(phi);
@@ -184,7 +189,7 @@ public class GalaxySimulator {
             float size = (1.0f - distanceFromCenter * 0.5f) * (random.nextFloat() * 0.2f + 0.1f);
             float brightness = 1.0f - distanceFromCenter * 0.5f;
             
-            // add our shiny new star to the collection
+            // add new star
             stars.add(new Star(new Vector3f(x, y, z), size, brightness));
         }
     }
@@ -200,9 +205,8 @@ public class GalaxySimulator {
     }
 
     private void generateNewClusters() {
-        // this is where the awesome sauce happens - we make new stars as ya fly around
         int checkRadius = 1;  // how far around the player to check for empty space
-        float minClusterDist = 100.0f;  // how far apart clusters need to be (no crowding!)
+        float minClusterDist = 100.0f;  // how far apart clusters need to be
         
         // figure out which chunk of space the player is in right now
         int playerRegionX = (int) Math.floor(cameraPos.x / REGION_SIZE);
@@ -228,6 +232,14 @@ public class GalaxySimulator {
                             regionY * REGION_SIZE + REGION_SIZE/2,
                             regionZ * REGION_SIZE + REGION_SIZE/2
                         );
+                        
+                        // Add scattered white stars to this region
+                        createScatteredStars(regionCenter, 200, REGION_SIZE * 0.8f);
+                        
+                        // Chance to generate a nebula in this region (rare)
+                        if (random.nextFloat() < NEBULA_RARITY) {
+                            createNebula(regionCenter);
+                        }
                         
                         // generate clusters for this region
                         int numClusters = random.nextInt(1, 3); // 1-2 clusters per region
@@ -274,7 +286,7 @@ public class GalaxySimulator {
         float currentSpeed = cameraSpeed;
         if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || 
             glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS) {
-            currentSpeed *= 5.0f;  // zoom zoom! hold ctrl to go fast!
+            currentSpeed *= 5.0f;  // speedy
         }
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
             cameraPos.add(new Vector3f(cameraFront).mul(currentSpeed));
@@ -317,11 +329,28 @@ public class GalaxySimulator {
             for (Star star : stars) {
                 renderStar(star, view, projection);
             }
+            
+            // update and render shooting stars
+            updateShootingStars(0.016f); // Approximate time for 60fps
+            for (Stars.ShootingStar shootingStar : shootingStars) {
+                shootingStar.render(view, projection);
+            }
+            
+            // Randomly spawn new shooting stars
+            if (random.nextFloat() < SHOOTING_STAR_CHANCE) {
+                shootingStars.add(Stars.createShootingStar(cameraPos, 500.0f, random));
+            }
+            
+            // render nebulae
+            for (Nebula nebula : nebulae) {
+                nebula.update(0.016f); // Approximate time for 60fps
+                nebula.render(view, projection);
+            }
 
             // generate new star clusters
             generateNewClusters();
 
-            // Draw coordinates in top-left corner
+            // draw coordinates in top left corner
             renderCoordinates();
 
             glfwSwapBuffers(window);
@@ -330,7 +359,7 @@ public class GalaxySimulator {
     }
 
     private void renderCoordinates() {
-        // Save the current matrices and set up orthographic projection for 2D rendering
+        // save the current matrices and set up orthographic projection for 2D rendering 
         glPushMatrix();
         glMatrixMode(GL_PROJECTION);
         glPushMatrix();
@@ -339,18 +368,18 @@ public class GalaxySimulator {
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
 
-        // Move to top-left corner with small padding
+        // move to top left corner with small padding
         glTranslatef(10, 20, 0);
 
-        // Disable depth testing for UI elements
+        // disable depth testing for UI elements
         glDisable(GL_DEPTH_TEST);
 
-        // Draw coordinate text
+        // draw coordinate text
         glColor3f(1.0f, 1.0f, 1.0f);
         String coords = String.format("X: %.1f Y: %.1f Z: %.1f", cameraPos.x, cameraPos.y, cameraPos.z);
         renderText(coords);
 
-        // Restore previous state
+        // restore previous state
         glEnable(GL_DEPTH_TEST);
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();
@@ -359,14 +388,14 @@ public class GalaxySimulator {
     }
 
     private void renderText(String text) {
-        // Save current states
+        // save current states
         glPushAttrib(GL_LIST_BIT);
         glDisable(GL_TEXTURE_2D);
         
-        // Use points to render text
+        // use points to render text
         glPointSize(2.0f);
         float baseCharWidth = 8.0f;
-        float wideCharWidth = 10.0f;  // Wider spacing for numbers before decimal
+        float wideCharWidth = 10.0f;
         float charHeight = 15.0f;
         boolean afterDecimal = false;
         
@@ -501,14 +530,14 @@ public class GalaxySimulator {
                 break;
             case 9: // Render '9'
                 for (float y = h/2; y < h; y += 2) {
-                    glVertex2f(0, y);   // Left side
+                    glVertex2f(w - 1, y);   // Left side
                 }
                 for (float x = 0; x < w; x += 2) {
                     glVertex2f(x, h-1);   // Top
                     glVertex2f(x, h/2);   // Middle
                 }
                 for (float y = h/2; y < h; y += 2) {
-                    glVertex2f(w-1, y);     // Top right
+                    glVertex2f(0, y);     // Top right
                 }
                 break;
         }
@@ -527,8 +556,9 @@ public class GalaxySimulator {
     private void renderY(float w, float h) {
         glBegin(GL_POINTS);
         for (float t = 0; t < 0.5f; t += 0.1f) {
-            glVertex2f((0.5f + t) * w, t * h);
-            glVertex2f((0.5f - t) * w, t * h);
+            float y = (1 - t) * h - 0.6f * h;
+            glVertex2f((0.5f + t) * w, y);
+            glVertex2f((0.5f - t) * w, y);
         }
         for (float t = 0.5f; t < 1; t += 0.1f) {
             glVertex2f(w/2, t * h);
@@ -569,33 +599,103 @@ public class GalaxySimulator {
         glEnd();
     }
 
+    /**
+     * Creates scattered white stars in a region around a center point
+     * @param center The center point of the region
+     * @param numStars How many stars to create
+     * @param radius The radius of the region to scatter stars in
+     */
+    private void createScatteredStars(Vector3f center, int numStars, float radius) {
+        for (int i = 0; i < numStars; i++) {
+            // Use spherical coordinates to distribute stars evenly in 3D space
+            float theta = random.nextFloat() * 2.0f * (float)Math.PI;  // random angle around y-axis
+            float phi = (float)Math.acos(2.0f * random.nextFloat() - 1.0f);  // random angle from y-axis
+            float r = random.nextFloat() * radius;  // random distance from center
+            
+            // Convert spherical to Cartesian coordinates
+            float x = center.x + r * (float)(Math.sin(phi) * Math.cos(theta));
+            float y = center.y + r * (float)(Math.sin(phi) * Math.sin(theta));
+            float z = center.z + r * (float)Math.cos(phi);
+            
+            // Create a small white star with random size variation
+            float size = random.nextFloat() * 0.05f + 0.02f;  // smaller than cluster stars
+            float brightness = 0.9f + random.nextFloat() * 0.1f;  // high brightness (white)
+            
+            stars.add(new Star(new Vector3f(x, y, z), size, brightness));
+        }
+    }
+    
+    /**
+     * Creates a colorful nebula in the region
+     * @param regionCenter The center of the region where the nebula will be placed
+     */
+    private void createNebula(Vector3f regionCenter) {
+        // Offset the nebula from the exact center of the region
+        Vector3f nebulaCenter = new Vector3f(
+            regionCenter.x + (random.nextFloat() - 0.5f) * REGION_SIZE * 0.5f,
+            regionCenter.y + (random.nextFloat() - 0.5f) * REGION_SIZE * 0.5f,
+            regionCenter.z + (random.nextFloat() - 0.5f) * REGION_SIZE * 0.5f
+        );
+        
+        // Nebulae are extremely large - between 200% and 300% of a region's size
+        float nebulaRadius = REGION_SIZE * (random.nextFloat() * 1.0f + 2.0f);
+        
+        // Number of particles depends on the size of the nebula
+        int particleCount = (int)(nebulaRadius * 3.0f); // More particles for denser nebulae
+        
+        // Randomly select a nebula type
+        Nebula.NebulaType[] nebulaTypes = Nebula.NebulaType.values();
+        Nebula.NebulaType type = nebulaTypes[random.nextInt(nebulaTypes.length)];
+        
+        // Create the nebula and add it to our list
+        nebulae.add(new Nebula(nebulaCenter, nebulaRadius, particleCount, type, random));
+        
+        System.out.println("Created a " + type + " nebula at " + nebulaCenter);
+    }
+
+    /**
+     * Update all shooting stars and remove dead ones
+     */
+    private void updateShootingStars(float deltaTime) {
+        // Update all shooting stars
+        for (int i = shootingStars.size() - 1; i >= 0; i--) {
+            Stars.ShootingStar star = shootingStars.get(i);
+            star.update(deltaTime);
+            
+            // Remove dead shooting stars
+            if (star.isDead()) {
+                shootingStars.remove(i);
+            }
+        }
+    }
+    
     private void renderStar(Star star, Matrix4f view, Matrix4f projection) {
-        // save the current drawing state
+        // Save the current drawing state
         glPushMatrix();
         
-        // lots of math to make sure stars appear in the right place
+        // Convert matrices to OpenGL format
         float[] viewMatrix = new float[16];
         float[] projMatrix = new float[16];
         view.get(viewMatrix);
         projection.get(projMatrix);
         
-        // tell OpenGL how to show everything in 3D
+        // Set up the projection and modelview matrices
         glMatrixMode(GL_PROJECTION);
         glLoadMatrixf(projMatrix);
         glMatrixMode(GL_MODELVIEW);
         glLoadMatrixf(viewMatrix);
         
-        // move to where we want to draw the star
+        // Move to where we want to draw the star
         glTranslatef(star.position.x, star.position.y, star.position.z);
         
-        // make it look like an actual star!
-        glPointSize(star.size * 10);  // bigger = chunkier star
-        glColor3f(star.brightness, star.brightness, star.brightness * 0.8f);  // make it glow
+        // Make it look like an actual star
+        glPointSize(star.size * 10);
+        glColor4f(star.brightness, star.brightness, star.brightness * 0.8f, 1.0f); // slight blue tint
         glBegin(GL_POINTS);
         glVertex3f(0.0f, 0.0f, 0.0f);  // just a single point in space
         glEnd();
         
-        // put everything back how we found it
+        // Restore the previous matrix state
         glPopMatrix();
     }
 
