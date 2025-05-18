@@ -23,6 +23,7 @@ public class GalaxySimulator {
 
     // camera stuff - this is how we move around in space
     private Vector3f cameraPos;      // where we are in space
+    private CoordinatesFontRenderer coordinatesFontRenderer;
     private Vector3f cameraFront;    // which way we're looking
     private Vector3f cameraUp;       // which way is up (so you don't get disoriented)
     private float cameraSpeed = 2.0f; // how fast we zoom around
@@ -58,11 +59,23 @@ public class GalaxySimulator {
     }
 
     public void run() {
-        init();
-        loop();
+        // Show homescreen first
+        Homescreen homescreen = new Homescreen();
+        boolean startGame = homescreen.show();
+        
+        // Only start the game if the user clicked play
+        if (startGame) {
+            init();
+            loop();
 
-        glfwFreeCallbacks(window);
-        glfwDestroyWindow(window);
+            glfwFreeCallbacks(window);
+            glfwDestroyWindow(window);
+        }
+        
+        // Clean up GLFW
+        if (coordinatesFontRenderer != null) {
+            coordinatesFontRenderer.cleanup();
+        }
         glfwTerminate();
         glfwSetErrorCallback(null).free();
     }
@@ -114,6 +127,10 @@ public class GalaxySimulator {
 
         GL.createCapabilities();
         glEnable(GL_DEPTH_TEST);
+
+        // Initialize font renderer for coordinates
+        coordinatesFontRenderer = new CoordinatesFontRenderer(16.0f);
+        coordinatesFontRenderer.init();
 
         // Initialize our collections
         stars = new ArrayList<>();
@@ -368,16 +385,23 @@ public class GalaxySimulator {
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
 
-        // move to top left corner with small padding
-        glTranslatef(10, 20, 0);
-
         // disable depth testing for UI elements
         glDisable(GL_DEPTH_TEST);
 
-        // draw coordinate text
-        glColor3f(1.0f, 1.0f, 1.0f);
+        // draw coordinate text with our SpaceNova font
+        glColor3f(0.8f, 0.9f, 1.0f); // Light blue color for coordinates
         String coords = String.format("X: %.1f Y: %.1f Z: %.1f", cameraPos.x, cameraPos.y, cameraPos.z);
-        renderText(coords);
+        
+        try {
+            // Try to use the SpaceNova font first
+            coordinatesFontRenderer.renderText(coords, 10, 20, 20.0f);
+        } catch (Exception e) {
+            // Fall back to the original text rendering if there's an issue
+            System.out.println("Falling back to original text rendering: " + e.getMessage());
+            glLoadIdentity();
+            glTranslatef(10, 20, 0);
+            renderText(coords);
+        }
 
         // restore previous state
         glEnable(GL_DEPTH_TEST);
@@ -617,9 +641,9 @@ public class GalaxySimulator {
             float y = center.y + r * (float)(Math.sin(phi) * Math.sin(theta));
             float z = center.z + r * (float)Math.cos(phi);
             
-            // Create a small white star with random size variation
-            float size = random.nextFloat() * 0.05f + 0.02f;  // smaller than cluster stars
-            float brightness = 0.9f + random.nextFloat() * 0.1f;  // high brightness (white)
+            // Create a more visible white star with better size variation
+            float size = random.nextFloat() * 0.15f + 0.05f;  // Increased size for better visibility
+            float brightness = 0.85f + random.nextFloat() * 0.15f;  // Varied brightness for more natural look
             
             stars.add(new Star(new Vector3f(x, y, z), size, brightness));
         }
@@ -688,12 +712,19 @@ public class GalaxySimulator {
         // Move to where we want to draw the star
         glTranslatef(star.position.x, star.position.y, star.position.z);
         
+        // Enable point smoothing for better-looking stars
+        glEnable(GL_POINT_SMOOTH);
+        glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+        
         // Make it look like an actual star
         glPointSize(star.size * 10);
         glColor4f(star.brightness, star.brightness, star.brightness * 0.8f, 1.0f); // slight blue tint
         glBegin(GL_POINTS);
         glVertex3f(0.0f, 0.0f, 0.0f);  // just a single point in space
         glEnd();
+        
+        // Disable point smoothing after rendering
+        glDisable(GL_POINT_SMOOTH);
         
         // Restore the previous matrix state
         glPopMatrix();

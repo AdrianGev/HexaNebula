@@ -160,12 +160,12 @@ public class Stars {
                 glEnd();
             }
             
-            // Draw small particles along the trail for a sparkle effect
+            // draw small particles along the trail for a sparkle effect
             glPointSize(2.0f);
             glBegin(GL_POINTS);
             for (int i = 0; i < 10; i++) {
-                float factor = (float)i / 10.0f * 0.5f; // Only along first half of trail
-                float sparkleAlpha = alpha * (0.3f + (float)Math.random() * 0.7f); // Random brightness
+                float factor = (float)i / 10.0f * 0.5f; // only along first half of trail
+                float sparkleAlpha = alpha * (0.3f + (float)Math.random() * 0.7f); // random brightness
                 
                 glColor4f(headColor.x, headColor.y, headColor.z, sparkleAlpha);
                 glVertex3f(
@@ -176,30 +176,30 @@ public class Stars {
             }
             glEnd();
             
-            // Draw the head of the shooting star with a glow
-            // First draw a larger, more transparent glow
+            // draw the head of the shooting star with a glow
+            // first draw a larger, more transparent glow
             glPointSize(headSize * 25);
             glColor4f(headColor.x, headColor.y, headColor.z, alpha * 0.3f);
             glBegin(GL_POINTS);
             glVertex3f(position.x, position.y, position.z);
             glEnd();
             
-            // Then draw the core
+            // then draw the core
             glPointSize(headSize * 15);
             glColor4f(headColor.x, headColor.y, headColor.z, alpha);
             glBegin(GL_POINTS);
             glVertex3f(position.x, position.y, position.z);
             glEnd();
             
-            // Restore blend mode
+            // restore blend mode
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             
-            // Restore the previous matrix state
+            // restore the previous matrix state
             glPopMatrix();
         }
         
         /**
-         * Check if this shooting star has completed its lifetime
+         * check if this shooting star has completed its lifetime
          */
         public boolean isDead() {
             return currentLifetime >= lifetime;
@@ -209,10 +209,10 @@ public class Stars {
 
     
     /**
-     * Create a shooting star at a random position with random direction
+     * create a shooting star at a random position with random direction
      */
     public static ShootingStar createShootingStar(Vector3f cameraPos, float distance, Random random) {
-        // Generate a random position around the camera
+        // generate a random position around the camera
         float theta = random.nextFloat() * 2.0f * (float)Math.PI;
         float phi = (float)Math.acos(2.0f * random.nextFloat() - 1.0f);
         
@@ -226,7 +226,7 @@ public class Stars {
             cameraPos.z + z
         );
         
-        // Generate a random direction that's not directly toward or away from the camera
+        // generate a random direction that's not directly toward or away from the camera
         Vector3f toCamera = new Vector3f(cameraPos).sub(position).normalize();
         Vector3f up = new Vector3f(0.0f, 1.0f, 0.0f);
         Vector3f right = new Vector3f(toCamera).cross(up).normalize();
@@ -241,10 +241,10 @@ public class Stars {
             toCamera.z * 0.2f + right.z * dirX + up.z * dirY
         ).normalize();
         
-        // Speed between 100-300 units per second
+        // speed between 100-300 units per second
         float speed = random.nextFloat() * 200.0f + 100.0f;
         
-        // Lifetime between 5-10 seconds
+        // lifetime between 5-10 seconds
         float lifetime = random.nextFloat() * 5.0f + 5.0f;
         
         return new ShootingStar(position, direction, speed, lifetime, random);

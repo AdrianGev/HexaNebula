@@ -304,20 +304,17 @@ public class Nebula {
         return center;
     }
     
-    /**
-     * Get the radius of this nebula
-     */
+    // get the radius of this nebula
     public float getRadius() {
         return radius;
     }
     
-    /**
-     * Different types of nebulae with different colors and characteristics
-     */
+
+    // different types of nebulae with different colors and characteristics
     public enum NebulaType {
-        EMISSION,   // Red/orange emission nebula
-        REFLECTION, // Blue reflection nebula
-        PLANETARY,  // Green/teal planetary nebula
-        DARK        // Purple/dark nebula
+        EMISSION,   // red/orange emission nebula
+        REFLECTION, // blue reflection nebula
+        PLANETARY,  // green/teal planetary nebula
+        DARK        // purple/dark nebula
     }
 }
