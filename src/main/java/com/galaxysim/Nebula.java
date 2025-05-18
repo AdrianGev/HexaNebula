@@ -11,7 +11,8 @@ import static org.lwjgl.opengl.GL11.*;
 
 /**
  * Represents a colorful nebula in space - a large, visually impressive cloud of gas and dust.
- * Nebulae are rare but spectacular features in the galaxy.
+ * Nebulae are rare but lit features in the galaxy.
+ * Is a work in progress, I know
  */
 public class Nebula {
     private Vector3f center;           // Center position of the nebula

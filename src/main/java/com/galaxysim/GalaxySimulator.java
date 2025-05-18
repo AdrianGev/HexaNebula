@@ -26,7 +26,6 @@ public class GalaxySimulator {
     private CoordinatesFontRenderer coordinatesFontRenderer;
     private Vector3f cameraFront;    // which way we're looking
     private Vector3f cameraUp;       // which way is up (so you don't get disoriented)
-    private float cameraSpeed = 2.0f; // how fast we zoom around
     
     // mouse looking stuff - helps us look around smoothly
     private float yaw = -90.0f;      // looking left/right
@@ -35,26 +34,73 @@ public class GalaxySimulator {
     private float lastY = HEIGHT / 2.0f; // last mouse y pos
 
     // the actual space stuff
-    private List<Star> stars;         // all our pretty stars
+    private List<Star> stars;         // all stars
     private List<Stars.ShootingStar> shootingStars; // shooting stars with trails
     private List<Nebula> nebulae;     // colorful gas clouds
-    private Random random;            // for making random stuff
+    private List<Bodies.Sun> suns;    // large stars (suns)
+    private Random random;            
     private Set<String> generatedRegions;  // keeps track of where the game has already made stars
-    private static final float REGION_SIZE = 2000.0f;  // how big each chunk of space is
-    private static final float NEBULA_RARITY = 0.05f;  // chance of a nebula spawning in a region (5% - very rare)
-    private static final float SHOOTING_STAR_CHANCE = 0.02f; // 2% chance per frame to spawn a shooting star
+    private static final float REGION_SIZE = DispersionSettings.getRegionSize();  // how big each chunk of space is
 
     // this is what each star is made of
-    private static class Star {
+    // Changed from static to non-static class to access the random field
+    private class Star {
         Vector3f position;    // where the star is in space
         float size;          // how chunky the star is
         float brightness;    // how bright and shiny it is
+        
+        // Flag to identify if this is a scattered star or a clustered star
+        boolean isScatteredStar; // true if this is a scattered star (should glimmer)
+        
+        // Glimmering effect properties
+        boolean canGlimmer;   // whether this star can glimmer
+        float glimmerChance;  // chance of glimmering each frame
+        float glimmerIntensity; // how bright the glimmer is
+        boolean isGlimmering; // current glimmering state
+        float currentBrightness; // current brightness with glimmer effect
 
-        // when we make a new star, we gotta set all its properties
-        Star(Vector3f position, float size, float brightness) {
+        // Constructor with flag to identify scattered vs clustered stars
+        Star(Vector3f position, float size, float brightness, boolean isScatteredStar) {
             this.position = position;
             this.size = size;
             this.brightness = brightness;
+            this.currentBrightness = brightness;
+            this.isScatteredStar = isScatteredStar;
+            
+            // Only scattered stars can glimmer
+            if (isScatteredStar) {
+                // High chance for scattered stars to glimmer
+                this.canGlimmer = random.nextFloat() < 0.9f; // 90% of scattered stars can glimmer
+                // How often the star glimmers - high chance for scattered stars
+                this.glimmerChance = random.nextFloat() * 0.05f + 0.03f; // 3-8% chance per frame
+                // How intense the glimmer is (1.8x to 3.0x normal brightness)
+                this.glimmerIntensity = random.nextFloat() * 1.2f + 1.8f;
+            } else {
+                // Clustered stars don't glimmer
+                this.canGlimmer = false;
+                this.glimmerChance = 0;
+                this.glimmerIntensity = 1.0f;
+            }
+            this.isGlimmering = false;
+        }
+        
+        // Update the star's glimmering state
+        void update() {
+            // Only scattered stars can glimmer
+            if (!isScatteredStar || !canGlimmer) {
+                return; // This star doesn't glimmer
+            }
+            
+            // Check if we should start glimmering
+            if (!isGlimmering && random.nextFloat() < glimmerChance) {
+                isGlimmering = true;
+                currentBrightness = brightness * glimmerIntensity;
+            } 
+            // Check if we should stop glimmering (glimmers are brief)
+            else if (isGlimmering && random.nextFloat() < 0.15f) { // 15% chance to stop each frame
+                isGlimmering = false;
+                currentBrightness = brightness;
+            }
         }
     }
 
@@ -64,6 +110,7 @@ public class GalaxySimulator {
         boolean startGame = homescreen.show();
         
         // Only start the game if the user clicked play
+        // (no duh)
         if (startGame) {
             init();
             loop();
@@ -72,7 +119,7 @@ public class GalaxySimulator {
             glfwDestroyWindow(window);
         }
         
-        // Clean up GLFW
+        // clean up GLFW
         if (coordinatesFontRenderer != null) {
             coordinatesFontRenderer.cleanup();
         }
@@ -81,7 +128,7 @@ public class GalaxySimulator {
     }
 
     private void init() {
-        // setup error handling first (in case stuff goes wrong)
+        // setup error handling first (in case it crashes out)
         GLFWErrorCallback.createPrint(System.err).set();
 
         // try to start up our window system
@@ -116,6 +163,10 @@ public class GalaxySimulator {
         }
         glfwMakeContextCurrent(window);
         glfwSwapInterval(1);
+        
+        // Disable cursor before showing the window
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        
         glfwShowWindow(window);
 
         // setup ESC key callback
@@ -136,11 +187,17 @@ public class GalaxySimulator {
         stars = new ArrayList<>();
         shootingStars = new ArrayList<>();
         nebulae = new ArrayList<>();
+        suns = new ArrayList<>();
         random = new Random();
         generatedRegions = new HashSet<>();
 
-        // set cursor to center and hide it
+        // Make sure cursor is hidden and set initial position
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        
+        // Force cursor to center of screen
+        glfwSetCursorPos(window, WIDTH / 2.0f, HEIGHT / 2.0f);
+        lastX = WIDTH / 2.0f;
+        lastY = HEIGHT / 2.0f;
 
         // setup mouse callback
         glfwSetCursorPosCallback(window, (windowHandle, xpos, ypos) -> {
@@ -169,6 +226,9 @@ public class GalaxySimulator {
             cameraFront = direction.normalize();
         });
 
+        // Add a few distant suns
+        createDistantSuns(1);
+        
         // make our first few star clusters so it's not totally empty
         for (int i = 0; i < 5; i++) {
             // same sphere math as before - makes things look natural
@@ -185,7 +245,7 @@ public class GalaxySimulator {
         }
         
         // Add scattered white stars in the starting area
-        createScatteredStars(new Vector3f(0, 0, 0), 500, 200.0f);
+        createScatteredStars(new Vector3f(0, 0, 0), 200, 200.0f);
     }
 
     private void createStarCluster(Vector3f center, int numStars, float radius) {
@@ -206,8 +266,8 @@ public class GalaxySimulator {
             float size = (1.0f - distanceFromCenter * 0.5f) * (random.nextFloat() * 0.2f + 0.1f);
             float brightness = 1.0f - distanceFromCenter * 0.5f;
             
-            // add new star
-            stars.add(new Star(new Vector3f(x, y, z), size, brightness));
+            // add new star as a clustered star (doesn't glimmer)
+            stars.add(new Star(new Vector3f(x, y, z), size, brightness, false));
         }
     }
 
@@ -251,10 +311,18 @@ public class GalaxySimulator {
                         );
                         
                         // Add scattered white stars to this region
-                        createScatteredStars(regionCenter, 200, REGION_SIZE * 0.8f);
+                        createScatteredStars(regionCenter, 80, REGION_SIZE * 0.8f);
+                        
+                        // Chance to generate a sun in this region (very rare)
+                        if (random.nextFloat() < DispersionSettings.getSunRarity()) {
+                            // Place suns farther away but still visible
+                            float minDist = DispersionSettings.getSunMinDistance();
+                            float maxDist = DispersionSettings.getSunMaxDistance();
+                            createSun(regionCenter, random.nextFloat() * (maxDist - minDist) + minDist);
+                        }
                         
                         // Chance to generate a nebula in this region (rare)
-                        if (random.nextFloat() < NEBULA_RARITY) {
+                        if (random.nextFloat() < DispersionSettings.getNebulaRarity()) {
                             createNebula(regionCenter);
                         }
                         
@@ -300,10 +368,10 @@ public class GalaxySimulator {
 
     private void handleInput() {
         // figure out how fast we should move
-        float currentSpeed = cameraSpeed;
+        float currentSpeed = SpeedSettings.getDefaultSpeed();
         if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || 
             glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS) {
-            currentSpeed *= 5.0f;  // speedy
+            currentSpeed = SpeedSettings.getAmplifiedSpeed();  // speedy
         }
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
             cameraPos.add(new Vector3f(cameraFront).mul(currentSpeed));
@@ -342,8 +410,9 @@ public class GalaxySimulator {
                     cameraUp
             );
 
-            // render stars
+            // update and render stars
             for (Star star : stars) {
+                star.update(); // Update glimmering state
                 renderStar(star, view, projection);
             }
             
@@ -353,8 +422,8 @@ public class GalaxySimulator {
                 shootingStar.render(view, projection);
             }
             
-            // Randomly spawn new shooting stars
-            if (random.nextFloat() < SHOOTING_STAR_CHANCE) {
+            // Random chance to create a shooting star
+            if (random.nextFloat() < DispersionSettings.getShootingStarChance()) {
                 shootingStars.add(Stars.createShootingStar(cameraPos, 500.0f, random));
             }
             
@@ -362,6 +431,12 @@ public class GalaxySimulator {
             for (Nebula nebula : nebulae) {
                 nebula.update(0.016f); // Approximate time for 60fps
                 nebula.render(view, projection);
+            }
+            
+            // render suns
+            for (Bodies.Sun sun : suns) {
+                sun.update(0.016f); // Approximate time for 60fps
+                sun.render(view, projection);
             }
 
             // generate new star clusters
@@ -645,7 +720,8 @@ public class GalaxySimulator {
             float size = random.nextFloat() * 0.15f + 0.05f;  // Increased size for better visibility
             float brightness = 0.85f + random.nextFloat() * 0.15f;  // Varied brightness for more natural look
             
-            stars.add(new Star(new Vector3f(x, y, z), size, brightness));
+            // Add as a scattered star (can glimmer)
+            stars.add(new Star(new Vector3f(x, y, z), size, brightness, true));
         }
     }
     
@@ -654,29 +730,98 @@ public class GalaxySimulator {
      * @param regionCenter The center of the region where the nebula will be placed
      */
     private void createNebula(Vector3f regionCenter) {
-        // Offset the nebula from the exact center of the region
-        Vector3f nebulaCenter = new Vector3f(
-            regionCenter.x + (random.nextFloat() - 0.5f) * REGION_SIZE * 0.5f,
-            regionCenter.y + (random.nextFloat() - 0.5f) * REGION_SIZE * 0.5f,
-            regionCenter.z + (random.nextFloat() - 0.5f) * REGION_SIZE * 0.5f
-        );
+        // Pick a random position within the region
+        float offsetX = (random.nextFloat() - 0.5f) * REGION_SIZE * 0.5f;
+        float offsetY = (random.nextFloat() - 0.5f) * REGION_SIZE * 0.5f;
+        float offsetZ = (random.nextFloat() - 0.5f) * REGION_SIZE * 0.5f;
         
-        // Nebulae are extremely large - between 200% and 300% of a region's size
-        float nebulaRadius = REGION_SIZE * (random.nextFloat() * 1.0f + 2.0f);
+        Vector3f position = new Vector3f(regionCenter).add(offsetX, offsetY, offsetZ);
         
-        // Number of particles depends on the size of the nebula
-        int particleCount = (int)(nebulaRadius * 3.0f); // More particles for denser nebulae
+        // Random size between 100-300
+        float size = random.nextFloat() * 200.0f + 100.0f;
         
-        // Randomly select a nebula type
-        Nebula.NebulaType[] nebulaTypes = Nebula.NebulaType.values();
-        Nebula.NebulaType type = nebulaTypes[random.nextInt(nebulaTypes.length)];
+        // Random number of particles
+        int particles = random.nextInt(2000, 5000);
         
-        // Create the nebula and add it to our list
-        nebulae.add(new Nebula(nebulaCenter, nebulaRadius, particleCount, type, random));
+        // Pick a random nebula type
+        Nebula.NebulaType[] types = Nebula.NebulaType.values();
+        Nebula.NebulaType type = types[random.nextInt(types.length)];
         
-        System.out.println("Created a " + type + " nebula at " + nebulaCenter);
+        // Create the nebula
+        Nebula nebula = new Nebula(position, size, particles, type, random);
+        
+        // Log the creation
+        System.out.println(String.format("Created a %s nebula at (%6.1f %6.1f %6.1f)",
+                type.toString(), position.x, position.y, position.z));
+        
+        nebulae.add(nebula);
     }
-
+    
+    /**
+     * Creates distant suns far away from the starting position
+     * @param count Number of suns to create
+     */
+    private void createDistantSuns(int count) {
+        for (int i = 0; i < count; i++) {
+            // Create suns far away but still visible
+            float minDist = DispersionSettings.getSunMinDistance();
+            float maxDist = DispersionSettings.getSunMaxDistance();
+            float distance = random.nextFloat() * (maxDist - minDist) + minDist; // Use settings for distance
+            float angle = random.nextFloat() * (float)Math.PI * 2.0f;
+            float elevation = random.nextFloat() * (float)Math.PI - (float)Math.PI/2;
+            
+            // Convert spherical coordinates to cartesian
+            float x = distance * (float)Math.cos(elevation) * (float)Math.cos(angle);
+            float y = distance * (float)Math.cos(elevation) * (float)Math.sin(angle);
+            float z = distance * (float)Math.sin(elevation);
+            
+            Vector3f position = new Vector3f(x, y, z);
+            createSun(position, distance);
+        }
+    }
+    
+    /**
+     * Creates a sun at the specified position
+     * @param position Position for the sun
+     * @param distance Distance from origin (affects size)
+     */
+    private void createSun(Vector3f position, float distance) {
+        // Create a sun with size based on distance
+        Bodies.Sun sun = Bodies.createRandomSun(position, random);
+        suns.add(sun);
+    }
+    
+    /**
+     * Checks if a point is within the view frustum
+     * @param point The point to check
+     * @param view The view matrix
+     * @param projection The projection matrix
+     * @return True if the point is within the view frustum
+     */
+    public static boolean isPointInFrustum(Vector3f point, Matrix4f view, Matrix4f projection) {
+        // Create a combined view-projection matrix
+        Matrix4f viewProj = new Matrix4f(projection).mul(view);
+        
+        // Transform the point to clip space
+        org.joml.Vector4f pointVec = new org.joml.Vector4f(point.x, point.y, point.z, 1.0f);
+        org.joml.Vector4f clipSpace = viewProj.transform(pointVec, new org.joml.Vector4f());
+        
+        // Check if the point is within the clip space boundaries
+        float w = clipSpace.w;
+        
+        // Point is behind the camera
+        if (w <= 0) {
+            return false;
+        }
+        
+        // Normalize by w
+        float nx = clipSpace.x / w;
+        float ny = clipSpace.y / w;
+        float nz = clipSpace.z / w;
+        
+        // Check if the point is within the normalized device coordinates (-1 to 1 for all axes)
+        return nx >= -1 && nx <= 1 && ny >= -1 && ny <= 1 && nz >= -1 && nz <= 1;
+    }
     /**
      * Update all shooting stars and remove dead ones
      */
@@ -718,7 +863,7 @@ public class GalaxySimulator {
         
         // Make it look like an actual star
         glPointSize(star.size * 10);
-        glColor4f(star.brightness, star.brightness, star.brightness * 0.8f, 1.0f); // slight blue tint
+        glColor4f(star.currentBrightness, star.currentBrightness, star.currentBrightness, 1.0f); // pure white color with glimmer effect
         glBegin(GL_POINTS);
         glVertex3f(0.0f, 0.0f, 0.0f);  // just a single point in space
         glEnd();

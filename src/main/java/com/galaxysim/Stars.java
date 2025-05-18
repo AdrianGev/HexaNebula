@@ -10,7 +10,9 @@ import static org.lwjgl.opengl.GL11.*;
 public class Stars {
     
     /**
-     * A shooting star that moves across the sky
+     * A shooting star that moves across the dark and endless abyss of outer space
+     * (emo ahh description fr)
+     * you know your vector crashout is bad when you start talking to yourself in commments lmao
      */
     public static class ShootingStar {
         private Vector3f direction;      // Direction of movement
@@ -134,6 +136,7 @@ public class Stars {
                 float endAlpha = alpha * (1.0f - endFactor);
                 
                 // Interpolate between head and tail colors
+                // (the head is brighter than the tail)
                 Vector4f startColor = new Vector4f(
                     headColor.x * (1.0f - startFactor) + tailColor.x * startFactor,
                     headColor.y * (1.0f - startFactor) + tailColor.y * startFactor,
@@ -205,8 +208,6 @@ public class Stars {
             return currentLifetime >= lifetime;
         }
     }
-    
-
     
     /**
      * create a shooting star at a random position with random direction
