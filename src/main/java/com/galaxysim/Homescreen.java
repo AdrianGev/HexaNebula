@@ -37,8 +37,10 @@ public class Homescreen {
     private final int WIDTH = 1280;
     private final int HEIGHT = 720;
     
-    // background stars
+    // background celestial objects
     private List<BackgroundStar> stars;
+    private List<BackgroundStar> brightStars; // Separate list for brighter stars
+    private List<BackgroundSun> suns;
     private Random random;
     
     // button properties
@@ -73,6 +75,15 @@ public class Homescreen {
     private float speedButtonWidth;
     private float speedButtonHeight;
     private boolean speedButtonHovered;
+    
+    // Control settings menu
+    private boolean showControlMenu = false;
+    private float controlButtonX;
+    private float controlButtonY;
+    private float controlButtonWidth;
+    private float controlButtonHeight;
+    private boolean controlButtonHovered;
+    private int currentRebindingKey = -1; // -1 means not rebinding any key
     
     // dispersion submenu tabs
     private enum DispersionTab { SUNS, STARS, SHOOTING_STARS, NEBULAE }
@@ -129,18 +140,67 @@ public class Homescreen {
     private AudioPlayer audioPlayer;       
     
     // simple star for the background
-    private static class BackgroundStar {
+    private class BackgroundStar {
         float x, y;
         float size;
         float brightness;
+        boolean glimmers;
+        boolean isGlimmering;
+        float glimmerIntensity;
+        long lastGlimmerTime;
         
         BackgroundStar(float x, float y, float size, float brightness) {
             this.x = x;
             this.y = y;
             this.size = size;
             this.brightness = brightness;
+            this.glimmers = random.nextFloat() < 0.3f; // 30% of stars can glimmer
+            this.glimmerIntensity = random.nextFloat() * 0.5f + 1.5f; // 1.5x to 2.0x brighter when glimmering
+            this.lastGlimmerTime = System.currentTimeMillis();
+        }
+        
+        void update() {
+            if (glimmers) {
+                long currentTime = System.currentTimeMillis();
+                // Randomly start glimmering
+                if (!isGlimmering && random.nextFloat() < 0.005f && currentTime - lastGlimmerTime > 2000) {
+                    isGlimmering = true;
+                    lastGlimmerTime = currentTime;
+                }
+                // Stop glimmering after a short time
+                else if (isGlimmering && currentTime - lastGlimmerTime > 300) {
+                    isGlimmering = false;
+                    lastGlimmerTime = currentTime;
+                }
+            }
+        }
+        
+        float getCurrentBrightness() {
+            return isGlimmering ? brightness * glimmerIntensity : brightness;
         }
     }
+    
+    private class BackgroundSun {
+        float x, y;
+        float size;
+        float[] colors; // Array of colors for the gradient
+        
+        BackgroundSun(float x, float y, float size) {
+            this.x = x;
+            this.y = y;
+            this.size = size;
+            
+            // Create a gradient of orange/red colors for the sun
+            this.colors = new float[] {
+                1.0f, 0.8f, 0.0f, // Bright yellow-orange
+                1.0f, 0.6f, 0.0f, // Orange
+                1.0f, 0.4f, 0.0f, // Dark orange
+                0.9f, 0.2f, 0.0f  // Red-orange
+            };
+        }
+    }
+    
+
     
     public boolean show() {
         init();
@@ -218,13 +278,17 @@ public class Homescreen {
                                   ypos >= optionsButtonY && ypos <= optionsButtonY + optionsButtonHeight;
             
             // check if mouse is over dispersion button when options menu is shown
-            if (showOptionsMenu && !showDispersionMenu && !showSpeedMenu) {
+            if (showOptionsMenu && !showDispersionMenu && !showSpeedMenu && !showControlMenu) {
                 dispersionButtonHovered = xpos >= dispersionButtonX && xpos <= dispersionButtonX + dispersionButtonWidth &&
                                          ypos >= dispersionButtonY && ypos <= dispersionButtonY + dispersionButtonHeight;
                 
                 // check if mouse is over speed button
                 speedButtonHovered = xpos >= speedButtonX && xpos <= speedButtonX + speedButtonWidth &&
                                      ypos >= speedButtonY && ypos <= speedButtonY + speedButtonHeight;
+                
+                // check if mouse is over control button
+                controlButtonHovered = xpos >= controlButtonX && xpos <= controlButtonX + controlButtonWidth &&
+                                      ypos >= controlButtonY && ypos <= controlButtonY + controlButtonHeight;
             }
             
             // check if mouse is over back button when options menu is shown
@@ -276,6 +340,27 @@ public class Homescreen {
                         float knobRadius = volumeKnobSize / 2;
                         float knobY = volumeSliderY + volumeSliderHeight / 2;
                         
+                        // Check if we're in the control settings menu and handle key rebinding
+                        if (showControlMenu) {
+                            // Check for clicks on key binding buttons
+                            float buttonHeight = 40;
+                            float startY = HEIGHT / 3 - buttonHeight * 1.5f; // Shifted up by 1.5 button heights
+                            float lineHeight = 60;
+                            float buttonWidth = 300; // Increased from 200 to 300 to match the display width
+                            float buttonX = WIDTH * 3 / 4 - buttonWidth / 2;
+                            
+                            // Check each key binding button
+                            for (int i = 0; i < 7; i++) {
+                                float buttonY = startY + lineHeight * i;
+                                if (xpos[0] >= buttonX && xpos[0] <= buttonX + buttonWidth &&
+                                    ypos[0] >= buttonY && ypos[0] <= buttonY + buttonHeight) {
+                                    // Start rebinding this key
+                                    currentRebindingKey = i;
+                                    return; // Exit the callback to prevent other actions
+                                }
+                            }
+                        }
+                        
                         // Check if clicking directly on the knob
                         if (Math.abs(xpos[0] - volumeKnobX) <= knobRadius && 
                             Math.abs(ypos[0] - knobY) <= knobRadius) {
@@ -318,10 +403,12 @@ public class Homescreen {
         // initialize and play background music
         initAudio();
         
-        // initialize stars
+        // initialize random number generator
         random = new Random();
+        
+        // Initialize regular stars - make them more sparse
         stars = new ArrayList<>();
-        for (int i = 0; i < 200; i++) {
+        for (int i = 0; i < 120; i++) { // Reduced from 200 to 120 stars
             stars.add(new BackgroundStar(
                 random.nextFloat() * WIDTH,
                 random.nextFloat() * HEIGHT,
@@ -329,6 +416,38 @@ public class Homescreen {
                 random.nextFloat() * 0.5f + 0.5f
             ));
         }
+        
+        // Add scattered bright stars
+        brightStars = new ArrayList<>();
+        int numBrightStars = 30 + random.nextInt(20); // 30-50 bright stars
+        for (int i = 0; i < numBrightStars; i++) {
+            // Scattered randomly across the screen
+            float x = random.nextFloat() * WIDTH;
+            float y = random.nextFloat() * HEIGHT;
+            
+            // Larger size and higher brightness
+            float size = random.nextFloat() * 3.0f + 2.0f; // 2.0-5.0 (larger than regular stars)
+            float brightness = random.nextFloat() * 0.2f + 0.8f; // 0.8-1.0 (brighter than regular stars)
+            
+            brightStars.add(new BackgroundStar(x, y, size, brightness));
+        }
+        
+        // Add suns positioned at the extreme edges of the screen
+        suns = new ArrayList<>();
+        
+        // Always create exactly 2 suns
+        
+        // First sun - far left edge of screen
+        float leftSunX = WIDTH * 0.1f + random.nextFloat() * WIDTH * 0.05f; // 10-15% from left
+        float leftSunY = HEIGHT * 0.3f + random.nextFloat() * HEIGHT * 0.4f; // 30-70% from top
+        float leftSunSize = random.nextFloat() * 60 + 100; // 100-160 pixel radius (slightly larger)
+        suns.add(new BackgroundSun(leftSunX, leftSunY, leftSunSize));
+        
+        // Second sun - far right edge of screen
+        float rightSunX = WIDTH * 0.9f - random.nextFloat() * WIDTH * 0.05f; // 85-90% from left
+        float rightSunY = HEIGHT * 0.3f + random.nextFloat() * HEIGHT * 0.4f; // 30-70% from top
+        float rightSunSize = random.nextFloat() * 60 + 100; // 100-160 pixel radius (slightly larger)
+        suns.add(new BackgroundSun(rightSunX, rightSunY, rightSunSize));
         
         // initialize button position and size
         playButtonWidth = 300;
@@ -370,7 +489,13 @@ public class Homescreen {
         speedButtonWidth = 550; // Same width as dispersion button
         speedButtonHeight = 50;
         speedButtonX = (WIDTH - speedButtonWidth) / 2;
-        speedButtonY = dispersionButtonY + dispersionButtonHeight + 30; // position below dispersion button with more spacing
+        speedButtonY = dispersionButtonY + dispersionButtonHeight + 20; // Position below dispersion button
+        
+        // initialize control settings button position and size
+        controlButtonWidth = 550; // Same width as other buttons
+        controlButtonHeight = 50;
+        controlButtonX = (WIDTH - controlButtonWidth) / 2;
+        controlButtonY = speedButtonY + speedButtonHeight + 20; // Position below speed button with more spacing
     }
     
     /**
@@ -505,18 +630,21 @@ public class Homescreen {
                 // Handle options menu first if it's visible
                 if (showOptionsMenu) {
                     if (backButtonHovered) {
-                        // if in dispersion submenu or speed menu, go back to main options menu
+                        // if in dispersion submenu, speed menu, or control menu, go back to main options menu
                         if (showDispersionMenu) {
                             showDispersionMenu = false;
                         } else if (showSpeedMenu) {
                             showSpeedMenu = false;
+                        } else if (showControlMenu) {
+                            showControlMenu = false;
+                            currentRebindingKey = -1; // Cancel any ongoing rebinding
                         } else {
                             // hide options menu when back button is clicked
                             showOptionsMenu = false;
                         }
                         // add a small delay to prevent multiple toggles
                         try { Thread.sleep(200); } catch (InterruptedException e) {}
-                    } else if (!showDispersionMenu && !showSpeedMenu) {
+                    } else if (!showDispersionMenu && !showSpeedMenu && !showControlMenu) {
                         // Only check these buttons when in the main options menu
                         if (dispersionButtonHovered) {
                             // show dispersion submenu
@@ -524,6 +652,9 @@ public class Homescreen {
                         } else if (speedButtonHovered) {
                             // show speed settings menu
                             showSpeedMenu = true;
+                        } else if (controlButtonHovered) {
+                            // show control settings menu
+                            showControlMenu = true;
                         }
                     }
                 } else {
@@ -552,14 +683,100 @@ public class Homescreen {
     }
     
     private void drawStars() {
+        // Update stars (for glimmering effect)
+        for (BackgroundStar star : stars) {
+            star.update();
+        }
+        
+        // Update bright stars (for glimmering effect)
+        for (BackgroundStar star : brightStars) {
+            star.update();
+        }
+        
+        // Enable blending for the sun glow effects
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        
+        // Draw suns
+        for (BackgroundSun sun : suns) {
+            drawSun(sun);
+        }
+        
+        // Draw regular stars
+        glEnable(GL_POINT_SMOOTH); // Make stars round
         glBegin(GL_POINTS);
         for (BackgroundStar star : stars) {
-            // use the star size for point size
+            // Use the star size for point size
             glPointSize(star.size);
-            glColor4f(star.brightness, star.brightness, star.brightness, 1.0f);
+            // Use current brightness (may be glimmering)
+            float brightness = star.getCurrentBrightness();
+            glColor4f(brightness, brightness, brightness, 1.0f);
             glVertex2f(star.x, star.y);
         }
         glEnd();
+        
+        // Draw bright stars (larger and brighter)
+        glBegin(GL_POINTS);
+        for (BackgroundStar star : brightStars) {
+            // Use the star size for point size
+            glPointSize(star.size);
+            // Use current brightness (may be glimmering)
+            float brightness = star.getCurrentBrightness();
+            // Add a slight blue tint to bright stars
+            glColor4f(brightness, brightness, Math.min(1.0f, brightness * 1.1f), 1.0f);
+            glVertex2f(star.x, star.y);
+        }
+        glEnd();
+        
+        glDisable(GL_POINT_SMOOTH);
+        glDisable(GL_BLEND);
+    }
+    
+
+    
+    private void drawSun(BackgroundSun sun) {
+        // Draw the sun as a series of concentric circles with gradient colors
+        int numRings = 8;
+        float ringStep = sun.size / numRings;
+        
+        for (int i = numRings - 1; i >= 0; i--) {
+            float radius = ringStep * (i + 1);
+            float colorIndex = (float)i / (numRings - 1) * 3; // Map to color array indices
+            int baseIndex = (int)colorIndex;
+            float blend = colorIndex - baseIndex;
+            
+            // Blend between two colors in the gradient
+            float r, g, b;
+            if (baseIndex < 3) {
+                r = sun.colors[baseIndex * 3] * (1 - blend) + sun.colors[(baseIndex + 1) * 3] * blend;
+                g = sun.colors[baseIndex * 3 + 1] * (1 - blend) + sun.colors[(baseIndex + 1) * 3 + 1] * blend;
+                b = sun.colors[baseIndex * 3 + 2] * (1 - blend) + sun.colors[(baseIndex + 1) * 3 + 2] * blend;
+            } else {
+                r = sun.colors[9];
+                g = sun.colors[10];
+                b = sun.colors[11];
+            }
+            
+            // Add a slight pulsating effect to the outer rings
+            float pulse = 1.0f;
+            if (i > numRings / 2) {
+                pulse = 0.8f + 0.2f * (float)Math.sin(System.currentTimeMillis() / 500.0 + i);
+            }
+            
+            glColor4f(r * pulse, g * pulse, b * pulse, 0.7f);
+            
+            // Draw a filled circle
+            glBegin(GL_TRIANGLE_FAN);
+            glVertex2f(sun.x, sun.y); // Center
+            int segments = 36;
+            for (int j = 0; j <= segments; j++) {
+                float angle = (float)(j * 2 * Math.PI / segments);
+                float x = sun.x + (float)Math.cos(angle) * radius;
+                float y = sun.y + (float)Math.sin(angle) * radius;
+                glVertex2f(x, y);
+            }
+            glEnd();
+        }
     }
     
     private void drawTitle() {
@@ -694,6 +911,9 @@ public class Homescreen {
         } else if (showSpeedMenu) {
             // Draw speed settings menu
             drawSpeedSettingsMenu();
+        } else if (showControlMenu) {
+            // Draw control settings menu
+            drawControlSettingsMenu();
         } else {
             // draw options title
             String optionsTitle = "OPTIONS";
@@ -713,6 +933,9 @@ public class Homescreen {
             
             // draw speed settings button
             drawSpeedButton();
+            
+            // draw control settings button
+            drawControlButton();
         }
         
         // draw back button
@@ -799,6 +1022,167 @@ public class Homescreen {
         
         glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         renderTTFText(buttonText, textX, textY, buttonFontSize);
+    }
+    
+    /**
+     * Draws the control settings button
+     */
+    private void drawControlButton() {
+        // draw button background
+        if (controlButtonHovered) {
+            // bright green when hovered
+            glColor4f(0.3f, 0.7f, 0.4f, 0.8f);
+        } else {
+            // darker green normally
+            glColor4f(0.2f, 0.5f, 0.3f, 0.7f);
+        }
+        
+        glBegin(GL_QUADS);
+        glVertex2f(controlButtonX, controlButtonY);
+        glVertex2f(controlButtonX + controlButtonWidth, controlButtonY);
+        glVertex2f(controlButtonX + controlButtonWidth, controlButtonY + controlButtonHeight);
+        glVertex2f(controlButtonX, controlButtonY + controlButtonHeight);
+        glEnd();
+        
+        // draw button border
+        glColor4f(0.5f, 0.9f, 0.6f, 1.0f);
+        glLineWidth(2.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(controlButtonX, controlButtonY);
+        glVertex2f(controlButtonX + controlButtonWidth, controlButtonY);
+        glVertex2f(controlButtonX + controlButtonWidth, controlButtonY + controlButtonHeight);
+        glVertex2f(controlButtonX, controlButtonY + controlButtonHeight);
+        glEnd();
+        
+        // draw "Control Settings" text
+        String buttonText = "CONTROL SETTINGS";
+        float buttonFontSize = fontHeight * 1.0f;
+        float textWidth = getTextWidth(buttonText, buttonFontSize);
+        float textX = controlButtonX + (controlButtonWidth - textWidth) / 2;
+        float textY = controlButtonY + (controlButtonHeight - buttonFontSize) / 2 + buttonFontSize * 0.7f;
+        
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        renderTTFText(buttonText, textX, textY, buttonFontSize);
+    }
+    
+    /**
+     * Draws the control settings menu with key binding options
+     */
+    private void drawControlSettingsMenu() {
+        // draw control settings title
+        String title = "CONTROL SETTINGS";
+        float titleFontSize = fontHeight * 1.5f;
+        float titleWidth = getTextWidth(title, titleFontSize);
+        float titleX = (WIDTH - titleWidth) / 2;
+        float titleY = HEIGHT / 6;
+        
+        glColor4f(0.9f, 0.95f, 1.0f, 1.0f);
+        renderTTFText(title, titleX, titleY, titleFontSize);
+        
+        // Draw key binding options
+        float buttonHeight = 40;
+        float startY = HEIGHT / 3 - buttonHeight * 1.5f; // Shifted up by 1.5 button heights
+        float lineHeight = 60;
+        float fontSize = fontHeight * 0.9f;
+        float buttonWidth = 300; // Increased from 200 to 300 for even better display of key names
+        float labelX = WIDTH / 4;
+        float buttonX = WIDTH * 3 / 4 - buttonWidth / 2;
+        
+        // Draw instructions at the bottom of the screen
+        String instructions = "Click on a key to rebind it";
+        if (currentRebindingKey >= 0) {
+            instructions = "Press any key to set the binding...";
+        }
+        float instructionsWidth = getTextWidth(instructions, fontSize);
+        float instructionsX = (WIDTH - instructionsWidth) / 2;
+        float instructionsY = HEIGHT - 100; // Position near the bottom of the screen
+        
+        glColor4f(0.8f, 0.8f, 0.8f, 1.0f);
+        renderTTFText(instructions, instructionsX, instructionsY, fontSize);
+        
+        // Forward key
+        drawKeyBindingOption("Move Forward", ControlSettings.getKeyName(ControlSettings.getMoveForwardKey()), 
+                           labelX, buttonX, startY, buttonWidth, buttonHeight, fontSize, 0);
+        
+        // Backward key
+        drawKeyBindingOption("Move Backward", ControlSettings.getKeyName(ControlSettings.getMoveBackwardKey()), 
+                           labelX, buttonX, startY + lineHeight, buttonWidth, buttonHeight, fontSize, 1);
+        
+        // Left key
+        drawKeyBindingOption("Move Left", ControlSettings.getKeyName(ControlSettings.getMoveLeftKey()), 
+                           labelX, buttonX, startY + lineHeight * 2, buttonWidth, buttonHeight, fontSize, 2);
+        
+        // Right key
+        drawKeyBindingOption("Move Right", ControlSettings.getKeyName(ControlSettings.getMoveRightKey()), 
+                           labelX, buttonX, startY + lineHeight * 3, buttonWidth, buttonHeight, fontSize, 3);
+        
+        // Up key
+        drawKeyBindingOption("Move Up", ControlSettings.getKeyName(ControlSettings.getMoveUpKey()), 
+                           labelX, buttonX, startY + lineHeight * 4, buttonWidth, buttonHeight, fontSize, 4);
+        
+        // Down key
+        drawKeyBindingOption("Move Down", ControlSettings.getKeyName(ControlSettings.getMoveDownKey()), 
+                           labelX, buttonX, startY + lineHeight * 5, buttonWidth, buttonHeight, fontSize, 5);
+        
+        // Speed amplification key
+        drawKeyBindingOption("Amplify Speed", ControlSettings.getKeyName(ControlSettings.getAmplifySpeedKey()), 
+                           labelX, buttonX, startY + lineHeight * 6, buttonWidth, buttonHeight, fontSize, 6);
+    }
+    
+    /**
+     * Draws a key binding option with label and button
+     */
+    private void drawKeyBindingOption(String label, String keyName, float labelX, float buttonX, float y, 
+                                    float buttonWidth, float buttonHeight, float fontSize, int keyIndex) {
+        // Draw label - vertically centered with the button
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        float labelY = y + buttonHeight/2 + fontSize/3; // Adjusted to better align with button
+        renderTTFText(label, labelX, labelY, fontSize);
+        
+        // Draw button background
+        boolean isSelected = (currentRebindingKey == keyIndex);
+        if (isSelected) {
+            // Highlight when selected for rebinding
+            glColor4f(0.8f, 0.8f, 0.3f, 0.8f);
+        } else if (isMouseOverKeyBindingButton(buttonX, y, buttonWidth, buttonHeight)) {
+            // Highlight when hovered
+            glColor4f(0.4f, 0.6f, 0.8f, 0.8f);
+        } else {
+            // Normal color
+            glColor4f(0.3f, 0.4f, 0.6f, 0.7f);
+        }
+        
+        glBegin(GL_QUADS);
+        glVertex2f(buttonX, y);
+        glVertex2f(buttonX + buttonWidth, y);
+        glVertex2f(buttonX + buttonWidth, y + buttonHeight);
+        glVertex2f(buttonX, y + buttonHeight);
+        glEnd();
+        
+        // Draw button border
+        glColor4f(0.6f, 0.8f, 1.0f, 1.0f);
+        glLineWidth(2.0f);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(buttonX, y);
+        glVertex2f(buttonX + buttonWidth, y);
+        glVertex2f(buttonX + buttonWidth, y + buttonHeight);
+        glVertex2f(buttonX, y + buttonHeight);
+        glEnd();
+        
+        // Draw key name
+        float keyNameWidth = getTextWidth(keyName, fontSize);
+        float textX = buttonX + (buttonWidth - keyNameWidth) / 2;
+        float textY = y + (buttonHeight - fontSize) / 2 + fontSize * 0.7f;
+        
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        renderTTFText(keyName, textX, textY, fontSize);
+    }
+    
+    /**
+     * Check if mouse is over a key binding button
+     */
+    private boolean isMouseOverKeyBindingButton(float x, float y, float width, float height) {
+        return mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height;
     }
     
     /**
@@ -1259,35 +1643,67 @@ public class Homescreen {
     }
     
     /**
-     * Handles keyboard input for value editing
+     * Handles keyboard input for value editing and key rebinding
      */
     private void handleKeyInput(int key, int scancode, int action, int mods) {
-        if (!isEditingValue) return;
-        
         if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-            if (key == GLFW_KEY_ESCAPE) {
-                // Cancel editing
-                isEditingValue = false;
-            } else if (key == GLFW_KEY_ENTER) {
-                // Apply the entered value
-                try {
-                    float newValue = Float.parseFloat(valueInputBuffer.toString());
-                    
-                    // Update the appropriate setting based on which menu is active
-                    if (showSpeedMenu) {
-                        updateSpeedSetting(editingValueIndex, newValue);
-                    } else if (showDispersionMenu) {
-                        updateDispersionSetting(editingValueIndex, newValue);
+            // Handle key rebinding if we're in rebinding mode
+            if (currentRebindingKey >= 0 && showControlMenu) {
+                // Only accept the key if it's a valid key for binding
+                if (key != GLFW_KEY_ESCAPE) { // Don't allow ESC to be rebound
+                    switch (currentRebindingKey) {
+                        case 0: // Forward
+                            ControlSettings.setMoveForwardKey(key);
+                            break;
+                        case 1: // Backward
+                            ControlSettings.setMoveBackwardKey(key);
+                            break;
+                        case 2: // Left
+                            ControlSettings.setMoveLeftKey(key);
+                            break;
+                        case 3: // Right
+                            ControlSettings.setMoveRightKey(key);
+                            break;
+                        case 4: // Up
+                            ControlSettings.setMoveUpKey(key);
+                            break;
+                        case 5: // Down
+                            ControlSettings.setMoveDownKey(key);
+                            break;
+                        case 6: // Amplify Speed
+                            ControlSettings.setAmplifySpeedKey(key);
+                            break;
                     }
-                    
-                    isEditingValue = false;
-                } catch (NumberFormatException e) {
-                    // Invalid number format, flash the input field red
-                    // This would be handled in a real implementation
                 }
-            } else if (key == GLFW_KEY_BACKSPACE && valueInputBuffer.length() > 0) {
-                // Delete the last character
-                valueInputBuffer.deleteCharAt(valueInputBuffer.length() - 1);
+                // Exit rebinding mode
+                currentRebindingKey = -1;
+                return;
+            }
+            
+            // Handle value editing
+            if (isEditingValue) {
+                if (key == GLFW_KEY_ESCAPE) {
+                    // cancel editing
+                    isEditingValue = false;
+                    valueInputBuffer.setLength(0);
+                } else if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) {
+                    // apply the new value
+                    try {
+                        float value = Float.parseFloat(valueInputBuffer.toString());
+                        if (editingValueTab == null) {
+                            updateSpeedSetting(editingValueIndex, value);
+                        } else {
+                            updateDispersionSetting(editingValueIndex, value);
+                        }
+                        isEditingValue = false;
+                        valueInputBuffer.setLength(0);
+                    } catch (NumberFormatException e) {
+                        // invalid number, do nothing
+                    }
+                } else if (key == GLFW_KEY_BACKSPACE && valueInputBuffer.length() > 0) {
+                    // remove last character
+                    valueInputBuffer.deleteCharAt(valueInputBuffer.length() - 1);
+                }
             }
         }
     }

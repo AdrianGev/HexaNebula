@@ -369,26 +369,39 @@ public class GalaxySimulator {
     private void handleInput() {
         // figure out how fast we should move
         float currentSpeed = SpeedSettings.getDefaultSpeed();
-        if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || 
-            glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS) {
+        
+        // Check if speed amplification key is pressed
+        if (ControlSettings.isAmplifySpeedPressed(window)) {
             currentSpeed = SpeedSettings.getAmplifiedSpeed();  // speedy
         }
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+        
+        // Forward movement
+        if (glfwGetKey(window, ControlSettings.getMoveForwardKey()) == GLFW_PRESS) {
             cameraPos.add(new Vector3f(cameraFront).mul(currentSpeed));
         }
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+        
+        // Backward movement
+        if (glfwGetKey(window, ControlSettings.getMoveBackwardKey()) == GLFW_PRESS) {
             cameraPos.sub(new Vector3f(cameraFront).mul(currentSpeed));
         }
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+        
+        // Left movement
+        if (glfwGetKey(window, ControlSettings.getMoveLeftKey()) == GLFW_PRESS) {
             cameraPos.sub(new Vector3f(cameraFront).cross(cameraUp).normalize().mul(currentSpeed));
         }
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+        
+        // Right movement
+        if (glfwGetKey(window, ControlSettings.getMoveRightKey()) == GLFW_PRESS) {
             cameraPos.add(new Vector3f(cameraFront).cross(cameraUp).normalize().mul(currentSpeed));
         }
-        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+        
+        // Up movement
+        if (glfwGetKey(window, ControlSettings.getMoveUpKey()) == GLFW_PRESS) {
             cameraPos.y += currentSpeed;
         }
-        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+        
+        // Down movement
+        if (glfwGetKey(window, ControlSettings.getMoveDownKey()) == GLFW_PRESS) {
             cameraPos.y -= currentSpeed;
         }
     }
